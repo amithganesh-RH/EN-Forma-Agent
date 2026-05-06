@@ -1,0 +1,44 @@
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      EN_USERNAME: ${EN_USERNAME}
+      EN_PASSWORD: ${EN_PASSWORD}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REFRESH_TOKEN: ${GOOGLE_REFRESH_TOKEN}
+      GDRIVE_FOLDER_ID: ${GDRIVE_FOLDER_ID}
+      AGENT_WEBHOOK_SECRET: ${AGENT_WEBHOOK_SECRET}
+      DOWNLOAD_DIR: /app/employee_navigator_reports
+    volumes:
+      - agent_reports:/app/employee_navigator_reports
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:8080"
+    environment:
+      PORT: "8080"
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: http://localhost:3000
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REFRESH_TOKEN: ${GOOGLE_REFRESH_TOKEN}
+      GDRIVE_RAW_FOLDER_ID: ${GDRIVE_RAW_FOLDER_ID}
+      GDRIVE_FORMA_FOLDER_ID: ${GDRIVE_FORMA_FOLDER_ID}
+      NEXT_PUBLIC_GDRIVE_RAW_FOLDER_ID: ${GDRIVE_RAW_FOLDER_ID}
+      NEXT_PUBLIC_GDRIVE_FORMA_FOLDER_ID: ${GDRIVE_FORMA_FOLDER_ID}
+      AGENT_SERVICE_URL: http://agent:8080
+      AGENT_WEBHOOK_SECRET: ${AGENT_WEBHOOK_SECRET}
+    depends_on:
+      - agent
+
+volumes:
+  agent_reports:
