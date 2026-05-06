@@ -67,14 +67,14 @@ def parse_date(s: str) -> Optional[datetime.date]:
 
 def termination_cutoff(today: "datetime.date") -> "datetime.date":
     """
-    Returns the 14th of the previous month.
+    Returns the 21st of the previous month.
     Employees with End Date on or before this date are excluded.
-    e.g. today = May 6 → cutoff = April 14
+    e.g. today = May 6 → cutoff = April 21
     """
     import datetime as _dt
     if today.month == 1:
-        return _dt.date(today.year - 1, 12, 14)
-    return _dt.date(today.year, today.month - 1, 14)
+        return _dt.date(today.year - 1, 12, 21)
+    return _dt.date(today.year, today.month - 1, 21)
 
 
 def fix_employee_id(emp_id: str, first: str, last: str) -> str:
