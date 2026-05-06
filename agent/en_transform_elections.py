@@ -14,7 +14,7 @@ Column mapping:
 
 import csv
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -28,7 +28,6 @@ SCOPES           = [
 
 PAYS_PER_YEAR    = 24          # semi-monthly pay schedule
 PLAN_YEAR_START  = datetime(2026, 1, 1).date()
-CUTOFF_DAYS      = 60          # exclude employees terminated more than this many days ago
 
 OUTPUT_HEADERS = [
     "Employee ID",
@@ -66,6 +65,18 @@ def parse_date(s: str) -> Optional[datetime.date]:
     return datetime.strptime(s, "%m/%d/%Y").date()
 
 
+def termination_cutoff(today: "datetime.date") -> "datetime.date":
+    """
+    Returns the 14th of the previous month.
+    Employees with End Date on or before this date are excluded.
+    e.g. today = May 6 → cutoff = April 14
+    """
+    import datetime as _dt
+    if today.month == 1:
+        return _dt.date(today.year - 1, 12, 14)
+    return _dt.date(today.year, today.month - 1, 14)
+
+
 def fix_employee_id(emp_id: str, first: str, last: str) -> str:
     """Ensure Brett Kempker's Employee ID always starts with '000'."""
     if first.strip().lower() == "brett" and last.strip().lower() == "kempker":
@@ -97,7 +108,7 @@ def transform_hsa(hsa_csv: Path, today: datetime.date) -> List[dict]:
 
     Employer Pay Period for already-terminated employees (End Date <= today) → $0.00
     """
-    cutoff = today - timedelta(days=CUTOFF_DAYS)
+    cutoff = termination_cutoff(today)
     rows = []
 
     with open(hsa_csv, newline="", encoding="utf-8-sig") as f:
@@ -171,7 +182,7 @@ def transform_fsa(fsa_csv: Path, today: datetime.date) -> List[dict]:
     - Account Status: "Active" if End Date blank, "Terminated" if End Date present
     - Employer Pay Period → $0 if already terminated (End Date <= today)
     """
-    cutoff = today - timedelta(days=CUTOFF_DAYS)
+    cutoff = termination_cutoff(today)
 
     # Collect candidate rows: (employee_id, account_type) → list of rows
     from collections import defaultdict
