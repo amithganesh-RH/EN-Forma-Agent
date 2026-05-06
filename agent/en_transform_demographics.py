@@ -45,6 +45,22 @@ OUTPUT_HEADERS = [
 ]
 
 
+def fix_zip(zip_code: str) -> str:
+    """Pad 4-digit zip codes with a leading 0 (e.g. '1234' → '01234')."""
+    z = zip_code.strip()
+    if len(z) == 4 and z.isdigit():
+        z = "0" + z
+    return z
+
+
+def fix_employee_id(emp_id: str, first: str, last: str) -> str:
+    """Ensure Brett Kempker's Employee ID always starts with '000'."""
+    if first.strip().lower() == "brett" and last.strip().lower() == "kempker":
+        if not emp_id.startswith("000"):
+            emp_id = "000" + emp_id
+    return emp_id
+
+
 def transform(demographics_csv: Path) -> List[dict]:
     """Read demographics CSV, deduplicate by Employee ID, map to output format."""
     seen = set()
@@ -58,25 +74,27 @@ def transform(demographics_csv: Path) -> List[dict]:
                 continue
             seen.add(emp_id)
 
+            first = row.get("First Name", "").strip()
+            last  = row.get("Last Name", "").strip()
             termination_date = row.get("Termination Date", "").strip()
             status = "Terminated" if termination_date else "Active"
 
             rows.append({
-                "Employee ID":               emp_id,
+                "Employee ID":               fix_employee_id(emp_id, first, last),
                 "Employee Email":            row.get("Work Email", "").strip(),
                 "Country":                   row.get("Country", "").strip(),
-                "Legal Name - First Name":   row.get("First Name", "").strip(),
-                "Legal Name - Last Name":    row.get("Last Name", "").strip(),
+                "Legal Name - First Name":   first,
+                "Legal Name - Last Name":    last,
                 "Employee Status":           status,
                 "Date of Birth":             row.get("DOB", "").strip(),
                 "Employee Personal Email":   row.get("Personal Email", "").strip(),
-                "Preferred Name - First Name": row.get("First Name", "").strip(),
-                "Preferred Name - Last Name":  row.get("Last Name", "").strip(),
+                "Preferred Name - First Name": first,
+                "Preferred Name - Last Name":  last,
                 "Address Line 1":            row.get("Address 1", "").strip(),
                 "Address Line 2":            row.get("Address 2", "").strip(),
                 "City":                      row.get("City", "").strip(),
                 "State":                     row.get("State", "").strip(),
-                "ZIP Code":                  row.get("Zip", "").strip(),
+                "ZIP Code":                  fix_zip(row.get("Zip", "")),
                 "Phone":                     row.get("Mobile Phone", "").strip(),
                 "Hire Date":                 row.get("Hire Date", "").strip(),
                 "Termination Date":          termination_date,

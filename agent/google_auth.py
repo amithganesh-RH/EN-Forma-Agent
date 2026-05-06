@@ -10,12 +10,20 @@ from pathlib import Path
 def write_token_from_env():
     """
     Write google_token.json from env vars so the existing scripts work unchanged.
-    Call this at startup in Railway.
+    - In Docker/cloud: GOOGLE_TOKEN_DIR points to a writable path (e.g. /tmp/en_report)
+    - Locally: skips writing if the token file already exists at ~/.config/en_report
     """
-    token_dir = Path(os.environ.get("GOOGLE_TOKEN_DIR", "/app/.config/en_report"))
+    default_dir = str(Path.home() / ".config" / "en_report")
+    token_dir = Path(os.environ.get("GOOGLE_TOKEN_DIR", default_dir))
     token_dir.mkdir(parents=True, exist_ok=True)
     token_file = token_dir / "google_token.json"
     creds_file = token_dir / "google_creds.json"
+
+    # If token already exists locally (dev mode) and no refresh token in env, skip writing
+    if token_file.exists() and not os.environ.get("GOOGLE_REFRESH_TOKEN"):
+        os.environ["GOOGLE_CREDS_FILE"] = str(creds_file) if creds_file.exists() else str(token_file)
+        os.environ.setdefault("GOOGLE_TOKEN_FILE", str(token_file))
+        return str(token_file)
 
     # Write token
     token_data = {

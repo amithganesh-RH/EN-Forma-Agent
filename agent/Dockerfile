@@ -22,6 +22,7 @@ RUN mkdir -p /app/employee_navigator_reports
 
 ENV PYTHONUNBUFFERED=1
 ENV DOWNLOAD_DIR=/app/employee_navigator_reports
+ENV GOOGLE_TOKEN_DIR=/tmp/en_report
 ENV PORT=8080
 
 EXPOSE 8080
