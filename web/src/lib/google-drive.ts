@@ -40,3 +40,33 @@ export async function listFilesInFolder(folderId: string): Promise<DriveFile[]> 
     mimeType: f.mimeType ?? "",
   }));
 }
+
+export interface DriveFolder {
+  id: string;
+  name: string;
+  files: DriveFile[];
+}
+
+export async function listSubfoldersWithFiles(parentFolderId: string): Promise<DriveFolder[]> {
+  const drive = getDriveClient();
+
+  // List subfolders
+  const folderRes = await drive.files.list({
+    q: `'${parentFolderId}' in parents and trashed=false and mimeType = 'application/vnd.google-apps.folder'`,
+    fields: "files(id,name)",
+    orderBy: "name",
+  });
+
+  const subfolders = folderRes.data.files ?? [];
+
+  // Fetch files inside each subfolder in parallel
+  const results = await Promise.all(
+    subfolders.map(async (folder) => ({
+      id: folder.id ?? "",
+      name: folder.name ?? "",
+      files: await listFilesInFolder(folder.id ?? ""),
+    }))
+  );
+
+  return results;
+}

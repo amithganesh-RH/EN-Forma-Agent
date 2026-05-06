@@ -14,6 +14,12 @@ interface DriveFile {
   webContentLink: string;
 }
 
+interface DriveFolder {
+  id: string;
+  name: string;
+  files: DriveFile[];
+}
+
 type Tab = "raw" | "forma";
 type RunStatus = "idle" | "running" | "success" | "error";
 
@@ -134,7 +140,8 @@ export default function DashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("raw");
-  const [files, setFiles] = useState<{ raw: DriveFile[]; forma: DriveFile[] }>({ raw: [], forma: [] });
+  const [files, setFiles] = useState<{ raw: DriveFile[] }>({ raw: [] });
+  const [formaFolders, setFormaFolders] = useState<DriveFolder[]>([]);
   const [loading, setLoading] = useState<{ raw: boolean; forma: boolean }>({ raw: true, forma: true });
   const [run, setRun] = useState<RunState>({ status: "idle", message: "" });
 
@@ -147,9 +154,14 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`/api/drive?folder=${tab === "forma" ? "forma" : "raw"}`);
       const data = await res.json();
-      setFiles((f) => ({ ...f, [tab]: data.files ?? [] }));
+      if (tab === "forma") {
+        setFormaFolders(data.folders ?? []);
+      } else {
+        setFiles((f) => ({ ...f, raw: data.files ?? [] }));
+      }
     } catch {
-      setFiles((f) => ({ ...f, [tab]: [] }));
+      if (tab === "forma") setFormaFolders([]);
+      else setFiles((f) => ({ ...f, raw: [] }));
     } finally {
       setLoading((l) => ({ ...l, [tab]: false }));
     }
@@ -204,9 +216,11 @@ export default function DashboardPage() {
     );
   }
 
+  const formaFileCount = formaFolders.reduce((sum, f) => sum + f.files.length, 0);
+
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: "raw", label: "Raw EN Reports", count: files.raw.length },
-    { id: "forma", label: "Forma Upload Files", count: files.forma.length },
+    { id: "forma", label: "Forma Upload Files", count: formaFileCount },
   ];
 
   const nextRunLabel = (() => {
@@ -309,7 +323,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           {[
             { label: "Raw Reports", value: files.raw.length, icon: "📄" },
-            { label: "Forma Files", value: files.forma.length, icon: "📤" },
+            { label: "Forma Files", value: formaFileCount, icon: "📤" },
             { label: "Schedule", value: "Bi-monthly", icon: "📅" },
             { label: "Status", value: run.status === "running" ? "Running" : "Ready", icon: run.status === "running" ? "⚡" : "✓" },
           ].map((s) => (
@@ -365,7 +379,40 @@ export default function DashboardPage() {
             <FileTable files={files.raw} loading={loading.raw} />
           )}
           {activeTab === "forma" && (
-            <FileTable files={files.forma} loading={loading.forma} />
+            loading.forma ? (
+              <div className="space-y-2 p-4">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="h-10 bg-gray-100 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : formaFolders.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                <svg className="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
+                <p className="text-sm font-medium">No folders found</p>
+                <p className="text-xs mt-1">Run the agent to generate upload files</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {formaFolders.map((folder) => (
+                  <div key={folder.id}>
+                    <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border-b border-gray-100">
+                      <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                      <span className="text-sm font-semibold text-gray-700">{folder.name}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-600 font-semibold">
+                        {folder.files.length}
+                      </span>
+                    </div>
+                    <FileTable files={folder.files} loading={false} />
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
 
