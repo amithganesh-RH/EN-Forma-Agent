@@ -224,7 +224,8 @@ def main():
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     Path(GOOGLE_CREDS).parent.mkdir(parents=True, exist_ok=True)
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today    = datetime.now().strftime("%Y-%m-%d")
+    date_str = datetime.now().strftime("%Y%m%d")
     print(f"=== Employee Navigator Weekly Reports — {today} ===\n")
 
     from playwright.sync_api import sync_playwright
@@ -273,6 +274,20 @@ def main():
             print(f"  ✗ Demographics transform failed: {e}")
     else:
         print(f"\n⚠ Demographics file not found, skipping pretax transform.")
+
+    # ── Transform HSA + FSA → pretax elections format and upload ────────────
+    hsa_file = DOWNLOAD_DIR / f"hsa_{today}.csv"
+    fsa_file = DOWNLOAD_DIR / f"fsa_{today}.csv"
+    if hsa_file.exists() and fsa_file.exists():
+        print(f"\n=== Transforming HSA + FSA → Elections Upload Format ===")
+        try:
+            import en_transform_elections as elections_mod
+            elections_mod.run(hsa_file, fsa_file, DOWNLOAD_DIR, date_str)
+        except Exception as e:
+            print(f"  ✗ Elections transform failed: {e}")
+    else:
+        missing = [str(f) for f in (hsa_file, fsa_file) if not f.exists()]
+        print(f"\n⚠ Missing files for elections transform: {', '.join(missing)}")
 
     print(f"\n=== Done — {len(downloaded)}/{len(TARGET_REPORTS)} reports completed ===")
 

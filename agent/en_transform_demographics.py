@@ -181,7 +181,7 @@ def run(demographics_csv: Path, output_dir: Path, date_str: str = None) -> str:
     # Upload to Drive subfolder "Pretax Demographics"
     print(f"  [demographics] Uploading to Google Drive subfolder...")
     service = get_drive_service()
-    subfolder_id = get_or_create_subfolder(service, GDRIVE_FOLDER_ID, "Pretax Demographics")
+    subfolder_id = get_or_create_subfolder(service, GDRIVE_FOLDER_ID, "Demographics Upload File")
     link = upload_csv(service, output_path, subfolder_id)
     print(f"  [demographics] ✓ Uploaded: {output_filename}  →  {link}")
     return link
