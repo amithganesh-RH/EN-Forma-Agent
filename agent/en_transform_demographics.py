@@ -46,8 +46,13 @@ OUTPUT_HEADERS = [
 
 
 def fix_zip(zip_code: str) -> str:
-    """Pad 4-digit zip codes with a leading 0 (e.g. '1234' → '01234')."""
+    """Pad 4-digit zip base with a leading 0 (e.g. '1234' → '01234', '1234-5678' → '01234-5678')."""
     z = zip_code.strip()
+    if "-" in z:
+        base, suffix = z.split("-", 1)
+        if len(base) == 4 and base.isdigit():
+            base = "0" + base
+        return f"{base}-{suffix}"
     if len(z) == 4 and z.isdigit():
         z = "0" + z
     return z
@@ -149,11 +154,25 @@ def get_or_create_subfolder(service, parent_id: str, folder_name: str) -> str:
 
 def upload_csv(service, file_path: Path, folder_id: str) -> str:
     from googleapiclient.http import MediaFileUpload
-    file_metadata = {"name": file_path.name, "parents": [folder_id]}
     media = MediaFileUpload(str(file_path), mimetype="text/csv", resumable=True)
-    uploaded = service.files().create(
-        body=file_metadata, media_body=media, fields="id, name, webViewLink"
-    ).execute()
+
+    # Replace existing file with same name if it exists
+    existing = service.files().list(
+        q=f"name='{file_path.name}' and '{folder_id}' in parents and trashed=false",
+        fields="files(id)"
+    ).execute().get("files", [])
+
+    if existing:
+        uploaded = service.files().update(
+            fileId=existing[0]["id"],
+            media_body=media,
+            fields="id, name, webViewLink"
+        ).execute()
+    else:
+        file_metadata = {"name": file_path.name, "parents": [folder_id]}
+        uploaded = service.files().create(
+            body=file_metadata, media_body=media, fields="id, name, webViewLink"
+        ).execute()
     return uploaded.get("webViewLink", "")
 
 

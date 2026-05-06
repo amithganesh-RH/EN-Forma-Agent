@@ -319,11 +319,25 @@ def get_or_create_subfolder(service, parent_id: str, folder_name: str) -> str:
 
 def upload_csv(service, file_path: Path, folder_id: str) -> str:
     from googleapiclient.http import MediaFileUpload
-    file_metadata = {"name": file_path.name, "parents": [folder_id]}
     media = MediaFileUpload(str(file_path), mimetype="text/csv", resumable=True)
-    uploaded = service.files().create(
-        body=file_metadata, media_body=media, fields="id, name, webViewLink"
-    ).execute()
+
+    # Replace existing file with same name if it exists
+    existing = service.files().list(
+        q=f"name='{file_path.name}' and '{folder_id}' in parents and trashed=false",
+        fields="files(id)"
+    ).execute().get("files", [])
+
+    if existing:
+        uploaded = service.files().update(
+            fileId=existing[0]["id"],
+            media_body=media,
+            fields="id, name, webViewLink"
+        ).execute()
+    else:
+        file_metadata = {"name": file_path.name, "parents": [folder_id]}
+        uploaded = service.files().create(
+            body=file_metadata, media_body=media, fields="id, name, webViewLink"
+        ).execute()
     return uploaded.get("webViewLink", "")
 
 
