@@ -4,6 +4,8 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.venv/
+venv/
 
 # Next.js
 web/.next/
@@ -22,6 +24,9 @@ agent/.env
 # Google credentials & tokens
 *.json.bak
 google_token.json
+drive_readonly_token.json
+web/drive_readonly_token.json
+*_token.json
 employee_navigator_reports/
 
 # OS

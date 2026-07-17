@@ -23,11 +23,26 @@ GOOGLE_CREDS     = os.environ.get("GOOGLE_CREDS_FILE", str(Path.home() / ".confi
 TOKEN_FILE       = str(Path(GOOGLE_CREDS).parent / "google_token.json")
 SCOPES           = [
     "https://www.googleapis.com/auth/drive.file",
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
 ]
+
+# Columns with leading zeros that must be preserved as text in Excel
+TEXT_COLUMNS = {"Employee ID"}
 
 PAYS_PER_YEAR    = 24          # semi-monthly pay schedule
 PLAN_YEAR_START  = datetime(2026, 1, 1).date()
+
+# Maximum allowed Employee Election per coverage tier (HSA only)
+# (Total annual limit minus fixed Employer Election)
+HSA_EE_ELECTION_CAP = {
+    "Family":     6_350.00,   # $8,750 total − $2,400 employer
+    "Individual": 3_200.00,   # $4,400 total − $1,200 employer
+}
+
+# Maximum annual Employee Election by account type (FSA / DCFSA)
+FSA_EE_ELECTION_CAP = {
+    "FSA":   3_116.00,
+    "DCFSA": 6_875.00,
+}
 
 OUTPUT_HEADERS = [
     "Employee ID",
@@ -157,7 +172,7 @@ def transform_hsa(hsa_csv: Path, today: datetime.date) -> List[dict]:
                 "Account Status":              status,
                 "Account Start Date":          account_start_date(start_date),
                 "Account End Date":            "",
-                "Employee Election":           fmt_dollar(ee_per_pay * PAYS_PER_YEAR),
+                "Employee Election":           fmt_dollar(min(ee_per_pay * PAYS_PER_YEAR, HSA_EE_ELECTION_CAP[coverage_tier])),
                 "Employer Election":           fmt_dollar(yearly_employer),
                 "Coverage Tier":               coverage_tier,
             })
@@ -256,7 +271,7 @@ def transform_fsa(fsa_csv: Path, today: datetime.date) -> List[dict]:
             "Account Status":              status,
             "Account Start Date":          account_start_date(start_date),
             "Account End Date":            "",
-            "Employee Election":           fmt_dollar(ee_per_pay * PAYS_PER_YEAR),
+            "Employee Election":           fmt_dollar(min(ee_per_pay * PAYS_PER_YEAR, FSA_EE_ELECTION_CAP[account_type])),
             "Employer Election":           "$0.00",
             "Coverage Tier":               coverage_tier,
         })
@@ -317,26 +332,52 @@ def get_or_create_subfolder(service, parent_id: str, folder_name: str) -> str:
     return folder["id"]
 
 
-def upload_csv(service, file_path: Path, folder_id: str) -> str:
-    from googleapiclient.http import MediaFileUpload
-    media = MediaFileUpload(str(file_path), mimetype="text/csv", resumable=True)
+def save_as_xlsx(rows: List[dict], xlsx_path: Path):
+    """Save rows as Excel (.xlsx) with ALL columns set to Text format to prevent auto-conversion."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    for col_idx, header in enumerate(OUTPUT_HEADERS, 1):
+        ws.cell(row=1, column=col_idx, value=header)
+    for row_idx, row in enumerate(rows, 2):
+        for col_idx, header in enumerate(OUTPUT_HEADERS, 1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=str(row.get(header, "")))
+            cell.number_format = "@"  # Text format on ALL columns
+    wb.save(str(xlsx_path))
 
-    # Replace existing file with same name if it exists
-    existing = service.files().list(
+
+def xlsx_to_csv(xlsx_path: Path, csv_path: Path):
+    """
+    Read the saved XLSX (all cells stored as text) and export as UTF-8 BOM CSV.
+    Values are taken directly from Excel's stored cell values so leading zeros,
+    employee IDs, etc. are preserved exactly as they appear in the Excel file.
+    """
+    from openpyxl import load_workbook
+    wb = load_workbook(str(xlsx_path), data_only=True)
+    ws = wb.active
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        for row in ws.iter_rows(values_only=True):
+            writer.writerow([str(cell) if cell is not None else "" for cell in row])
+
+
+def upload_file(drive_service, file_path: Path, folder_id: str, mime_type: str) -> str:
+    """Upload a file to Drive, replacing any existing file with the same name."""
+    from googleapiclient.http import MediaFileUpload
+    media = MediaFileUpload(str(file_path), mimetype=mime_type, resumable=True)
+    existing = drive_service.files().list(
         q=f"name='{file_path.name}' and '{folder_id}' in parents and trashed=false",
         fields="files(id)"
     ).execute().get("files", [])
-
     if existing:
-        uploaded = service.files().update(
-            fileId=existing[0]["id"],
-            media_body=media,
-            fields="id, name, webViewLink"
+        uploaded = drive_service.files().update(
+            fileId=existing[0]["id"], media_body=media, fields="id, name, webViewLink"
         ).execute()
     else:
-        file_metadata = {"name": file_path.name, "parents": [folder_id]}
-        uploaded = service.files().create(
-            body=file_metadata, media_body=media, fields="id, name, webViewLink"
+        uploaded = drive_service.files().create(
+            body={"name": file_path.name, "parents": [folder_id]},
+            media_body=media, fields="id, name, webViewLink"
         ).execute()
     return uploaded.get("webViewLink", "")
 
@@ -363,20 +404,32 @@ def run(hsa_csv: Path, fsa_csv: Path, output_dir: Path, date_str: str = None) ->
 
     all_rows = sort_rows(hsa_rows + fsa_rows)
 
-    output_filename = f"{date_str}_pretax_elections.csv"
-    output_path = output_dir / output_filename
-    with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=OUTPUT_HEADERS)
-        writer.writeheader()
-        writer.writerows(all_rows)
-    print(f"  [elections] Saved: {output_filename} ({len(all_rows)} rows total)")
+    # 1. Save as XLSX — all columns set to Text so nothing is auto-converted
+    xlsx_filename = f"{date_str}_pretax_elections.xlsx"
+    xlsx_path     = output_dir / xlsx_filename
+    save_as_xlsx(all_rows, xlsx_path)
+    print(f"  [elections] Saved: {xlsx_filename}")
 
+    # 2. Derive CSV from the Excel file (values read back exactly as stored)
+    csv_filename  = f"{date_str}_pretax_elections.csv"
+    csv_path      = output_dir / csv_filename
+    xlsx_to_csv(xlsx_path, csv_path)
+    print(f"  [elections] Saved CSV from Excel: {csv_filename} ({len(all_rows)} rows total)")
+
+    # 3. Upload to Drive
     print(f"  [elections] Uploading to Google Drive...")
-    service = get_drive_service()
+    service      = get_drive_service()
+    XLSX_MIME    = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
     subfolder_id = get_or_create_subfolder(service, GDRIVE_FOLDER_ID, "Elections Upload File")
-    link = upload_csv(service, output_path, subfolder_id)
-    print(f"  [elections] ✓ Uploaded: {output_filename}  →  {link}")
-    return link
+    xlsx_link    = upload_file(service, xlsx_path, subfolder_id, XLSX_MIME)
+    print(f"  [elections] ✓ Uploaded: {xlsx_filename}  →  {xlsx_link}")
+
+    csv_sub_id   = get_or_create_subfolder(service, subfolder_id, "CSV")
+    csv_link     = upload_file(service, csv_path, csv_sub_id, "text/csv")
+    print(f"  [elections] ✓ Uploaded CSV: {csv_filename}  →  {csv_link}")
+
+    return xlsx_link
 
 
 if __name__ == "__main__":

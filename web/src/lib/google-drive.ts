@@ -45,12 +45,13 @@ export interface DriveFolder {
   id: string;
   name: string;
   files: DriveFile[];
+  csvFolder?: { id: string; files: DriveFile[] };
 }
 
 export async function listSubfoldersWithFiles(parentFolderId: string): Promise<DriveFolder[]> {
   const drive = getDriveClient();
 
-  // List subfolders
+  // List main upload subfolders
   const folderRes = await drive.files.list({
     q: `'${parentFolderId}' in parents and trashed=false and mimeType = 'application/vnd.google-apps.folder'`,
     fields: "files(id,name)",
@@ -59,13 +60,31 @@ export async function listSubfoldersWithFiles(parentFolderId: string): Promise<D
 
   const subfolders = folderRes.data.files ?? [];
 
-  // Fetch files inside each subfolder in parallel
+  // For each subfolder, fetch its files AND look for a nested "CSV" subfolder
   const results = await Promise.all(
-    subfolders.map(async (folder) => ({
-      id: folder.id ?? "",
-      name: folder.name ?? "",
-      files: await listFilesInFolder(folder.id ?? ""),
-    }))
+    subfolders.map(async (folder) => {
+      const folderId = folder.id ?? "";
+
+      const [mainFiles, csvFolderRes] = await Promise.all([
+        listFilesInFolder(folderId),
+        drive.files.list({
+          q: `'${folderId}' in parents and trashed=false and mimeType = 'application/vnd.google-apps.folder' and name = 'CSV'`,
+          fields: "files(id,name)",
+        }),
+      ]);
+
+      const csvMeta = csvFolderRes.data.files?.[0];
+      const csvFolder = csvMeta
+        ? { id: csvMeta.id ?? "", files: await listFilesInFolder(csvMeta.id ?? "") }
+        : undefined;
+
+      return {
+        id: folderId,
+        name: folder.name ?? "",
+        files: mainFiles,
+        csvFolder,
+      };
+    })
   );
 
   return results;

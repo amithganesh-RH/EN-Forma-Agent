@@ -59,10 +59,19 @@ def try_click(page, selectors, timeout=5_000):
 # ── Login ─────────────────────────────────────────────────────────────────────
 def login(page):
     print("  → Logging in...")
-    page.goto(f"{EN_URL}/Benefits/Account/Login", wait_until="networkidle")
+    # Retry navigation up to 3 times with 1-hour delay between attempts
+    for attempt in range(1, 4):
+        try:
+            page.goto(f"{EN_URL}/Benefits/Account/Login", wait_until="networkidle", timeout=120_000)
+            break
+        except Exception as e:
+            if attempt == 3:
+                raise
+            print(f"  ⚠ Navigation attempt {attempt} failed ({e}), retrying in 1 hour...")
+            import time; time.sleep(3600)
     page.locator('input[type="text"], input:not([type="password"]):not([type="hidden"])').first.fill(EN_USERNAME)
     page.locator('input[type="password"]').first.fill(EN_PASSWORD)
-    with page.expect_navigation(wait_until="networkidle"):
+    with page.expect_navigation(wait_until="networkidle", timeout=120_000):
         page.click('button:has-text("Login"), input[type="submit"], button[type="submit"]')
     if "login" in page.url.lower() or "Login" in page.title():
         raise RuntimeError("Login failed — check EN_USERNAME / EN_PASSWORD")
@@ -76,23 +85,42 @@ def download_report(page, file_prefix: str, report_match: str, save_path: Path):
     today = datetime.now().strftime("%Y-%m-%d")
     print(f"\n  [{file_prefix}] Navigating to Saved Report Templates...")
 
-    # 1. Go to Reports landing page
+    # 1. Click "Home" to fully reset page state, then click "Reports" from the top nav.
+    #    This is more reliable than navigating directly (no valid /Benefits/Reports URL)
+    #    and avoids the issue where clicking "Reports" after an export lands on a
+    #    report-specific sub-page instead of the Reports Menu.
     try:
-        page.click('a:has-text("Reports")', timeout=5_000)
+        page.click('a:has-text("Home")', timeout=5_000)
         page.wait_for_load_state("networkidle")
     except PwTimeout:
-        page.goto(f"{EN_URL}/Benefits/Reports", wait_until="networkidle")
+        pass  # best effort — proceed even if Home click fails
+
+    try:
+        page.click('a:has-text("Reports")', timeout=8_000)
+        page.wait_for_load_state("networkidle")
+    except PwTimeout:
+        shot = screenshot(page, f"{file_prefix}_no_reports_link")
+        raise RuntimeError(f"Could not click 'Reports' nav link. See: {shot.name}")
 
     # 2. Click "Manage Saved Report Templates"
     try:
-        page.click('a:has-text("Manage Saved Report Templates")', timeout=6_000)
+        page.click('a:has-text("Manage Saved Report Templates")', timeout=8_000)
         page.wait_for_load_state("networkidle")
     except PwTimeout:
-        shot = screenshot(page, f"{file_prefix}_no_saved_link")
-        raise RuntimeError(
-            f"Could not find 'Manage Saved Report Templates' link. "
-            f"See: {shot.name}"
-        )
+        # Retry once: go Home → Reports again before giving up
+        try:
+            page.click('a:has-text("Home")', timeout=5_000)
+            page.wait_for_load_state("networkidle")
+            page.click('a:has-text("Reports")', timeout=8_000)
+            page.wait_for_load_state("networkidle")
+            page.click('a:has-text("Manage Saved Report Templates")', timeout=8_000)
+            page.wait_for_load_state("networkidle")
+        except PwTimeout:
+            shot = screenshot(page, f"{file_prefix}_no_saved_link")
+            raise RuntimeError(
+                f"Could not find 'Manage Saved Report Templates' link. "
+                f"See: {shot.name}"
+            )
 
     print(f"  [{file_prefix}] On template list, clicking '{report_match}' report...")
     shot = screenshot(page, f"{file_prefix}_template_list")
@@ -145,18 +173,14 @@ def download_report(page, file_prefix: str, report_match: str, save_path: Path):
     print(f"  [{file_prefix}] Report generated (screenshot: {shot.name})")
 
     # 6. Export as CSV
-    # The Download button may open a dropdown — click it first, then look for CSV option
+    # EN now shows a single "Download" button that directly triggers the download.
+    # All click attempts must be inside expect_download so the download is captured.
     print(f"  [{file_prefix}] Exporting as CSV...")
-    try_click(page, [
-        'button:has-text("Download")',
-        'a:has-text("Download")',
-    ], timeout=6_000)
-    page.wait_for_timeout(800)  # brief pause for dropdown to appear
-
-    # Now try to trigger the actual file download (dropdown CSV option or direct)
     with page.expect_download(timeout=60_000) as dl_info:
         clicked = try_click(page, [
-            'a:has-text("Export to CSV")',    # dropdown option
+            'button:has-text("Download")',    # current EN UI — direct download
+            'a:has-text("Download")',
+            'a:has-text("Export to CSV")',    # legacy dropdown option
             'button:has-text("Export to CSV")',
             'li:has-text("CSV") a',
             'li:has-text("CSV")',
@@ -164,9 +188,7 @@ def download_report(page, file_prefix: str, report_match: str, save_path: Path):
             'button:has-text("CSV")',
             'a:has-text("Export")',
             'button:has-text("Export")',
-            'button:has-text("Download")',    # if first click was a no-op, try again
-            'a:has-text("Download")',
-        ], timeout=5_000)
+        ], timeout=8_000)
 
         if not clicked:
             shot = screenshot(page, f"{file_prefix}_no_export")
@@ -288,6 +310,18 @@ def main():
     else:
         missing = [str(f) for f in (hsa_file, fsa_file) if not f.exists()]
         print(f"\n⚠ Missing files for elections transform: {', '.join(missing)}")
+
+    # ── Transform elections → contributions format and upload ─────────────────
+    elections_file = DOWNLOAD_DIR / f"{date_str}_pretax_elections.csv"
+    if elections_file.exists():
+        print(f"\n=== Transforming Elections → Contributions Upload Format ===")
+        try:
+            import en_transform_contributions as contributions_mod
+            contributions_mod.run(elections_file, DOWNLOAD_DIR, date_str, datetime.now().date())
+        except Exception as e:
+            print(f"  ✗ Contributions transform failed: {e}")
+    else:
+        print(f"\n⚠ Elections file not found, skipping contributions transform.")
 
     print(f"\n=== Done — {len(downloaded)}/{len(TARGET_REPORTS)} reports completed ===")
 
