@@ -26,7 +26,6 @@ GDRIVE_FOLDER_ID = os.environ.get("GDRIVE_FOLDER_ID", "1L4qIfD4bha6oZpZTe7s5LbNc
 DOWNLOAD_DIR     = Path.home() / "employee_navigator_reports"
 SCOPES           = [
     "https://www.googleapis.com/auth/drive.file",
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
 ]
 
 # Maps output filename prefix → partial text to match on the report template list
