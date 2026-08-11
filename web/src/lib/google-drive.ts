@@ -5,8 +5,13 @@ function getDriveClient() {
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );
+  // Prefer the drive.readonly credential (same one the agent uses to download
+  // files for SFTP push). GOOGLE_REFRESH_TOKEN only carries the drive.file
+  // scope, which sees files this app created but NOT files a person uploaded
+  // into the folder through the Drive UI — those stay invisible to Refresh.
   auth.setCredentials({
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+    refresh_token:
+      process.env.GDRIVE_DL_REFRESH_TOKEN || process.env.GOOGLE_REFRESH_TOKEN,
   });
   return google.drive({ version: "v3", auth });
 }
