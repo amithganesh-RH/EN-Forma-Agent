@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
 One-time script to get a Google OAuth refresh token with drive.readonly scope.
-Run this once, copy the refresh token into .env.local as GOOGLE_REFRESH_TOKEN.
+
+Run this once, then set the refresh token as GDRIVE_DL_REFRESH_TOKEN (NOT
+GOOGLE_REFRESH_TOKEN — that one carries the drive.file write scope the agent
+needs for uploads, and drive.readonly cannot upload).
+
+GDRIVE_DL_REFRESH_TOKEN is what lets the web app list, and the agent download,
+files that were uploaded into the Drive folders by hand.
 """
 import json, os, sys, webbrowser
 from pathlib import Path
@@ -45,8 +51,9 @@ def main():
 
     TOKEN_OUT.write_text(json.dumps(token_data, indent=2))
     print(f"\n✓ Token saved to: {TOKEN_OUT}")
-    print(f"\n📋 Add this to web/.env.local:")
-    print(f"\n   GOOGLE_REFRESH_TOKEN={refresh_token}\n")
+    print("\nNext: set GDRIVE_DL_REFRESH_TOKEN in web/.env.local from the")
+    print("'refresh_token' field of that file. Leave GOOGLE_REFRESH_TOKEN as is.")
+    print("(The token is not printed here so it stays out of terminal scrollback.)")
 
 if __name__ == "__main__":
     main()
