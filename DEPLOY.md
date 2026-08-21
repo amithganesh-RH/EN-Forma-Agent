@@ -64,16 +64,26 @@
 
 ```bash
 # Terminal 1 — Agent service
-cd ~/en-reports-app/agent
-pip3 install fastapi uvicorn
-source ~/.zshrc
-uvicorn main:app --port 8000
+cd ~/EN-Forma-Agent/agent
+python3 -m venv .venv                       # first time only
+.venv/bin/pip install -r requirements.txt   # ALL deps, not just fastapi+uvicorn
+.venv/bin/playwright install chromium       # first time only
+source ~/.zshrc                             # EN_USERNAME / EN_PASSWORD
+.venv/bin/uvicorn main:app --port 8000
 
 # Terminal 2 — Web app
-cd ~/en-reports-app/web
+cd ~/EN-Forma-Agent/web
+npm install                                 # first time only
 npm run dev
-# Open http://localhost:3000
+# Open http://localhost:3000  (the agent answers on :8000)
 ```
+
+**Re-run `pip install -r requirements.txt` after pulling changes that add a
+dependency.** An existing venv does not pick them up on its own, and the failure
+surfaces late — only when the feature is first exercised. Installing just
+`fastapi` and `uvicorn` is enough to boot the service and pass `/health`, but
+SFTP push then fails with `No module named 'paramiko'`, and a report run dies
+partway through without `openpyxl`.
 
 ---
 
